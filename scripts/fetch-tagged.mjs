@@ -31,6 +31,11 @@ const FULL_SYNC = process.env.IG_FULL_SYNC === '1';
 const PAGE_SIZE = 3;
 const MAX_PAGES = 700;
 
+// Small pause between page requests, and backoff/retry on transient errors,
+// so a burst of many small requests doesn't trip Meta's rate limiting.
+const PAGE_DELAY_MS = 1500;
+const MAX_ATTEMPTS = 5;
+
 const ROOT = path.resolve(process.cwd());
 const MEDIA_DIR = path.join(ROOT, 'media');
 const FEED_PATH = path.join(ROOT, 'feed.json');
@@ -50,6 +55,10 @@ const FIELDS = [
 function die(msg) {
   console.error(`\n✗ ${msg}\n`);
   process.exit(1);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 if (!TOKEN) die('IG_TOKEN is not set. Add it as a repository secret.');
@@ -108,6 +117,11 @@ async function refreshToken() {
  * Walks the /tags edge. Stops early once a whole page is already known, since
  * routine runs only need the new arrivals — unless IG_FULL_SYNC forces a full
  * walk (used for the initial backlog import).
+ *
+ * Meta's backend intermittently rejects requests with a generic "reduce the
+ * amount of data" / "unknown error" (code 1) 500 when hit with a burst of
+ * requests in quick succession. Neither is about this request's own size —
+ * retrying with backoff, and pacing requests with a short delay, clears it.
  */
 async function fetchTagged(known) {
   const first = new URL(`https://${HOST}/${VERSION}/${USER_ID}/tags`);
@@ -120,11 +134,26 @@ async function fetchTagged(known) {
   const out = [];
 
   while (next && pages < MAX_PAGES) {
-    const res = await fetch(next);
-    const body = await res.json().catch(() => ({}));
+    let body;
+    for (let attempt = 1; ; attempt++) {
+      const res = await fetch(next);
+      body = await res.json().catch(() => ({}));
 
-    if (!res.ok) {
+      if (res.ok) break;
+
       const err = body?.error || {};
+      const transient = res.status >= 500 || err.code === 1;
+      if (transient && attempt < MAX_ATTEMPTS) {
+        const wait = 2000 * attempt;
+        console.log(
+          `  · transient error on page ${pages + 1}, attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${wait}ms: ${
+            err.message || res.status
+          }`
+        );
+        await sleep(wait);
+        continue;
+      }
+
       throw new Error(
         `Graph API ${res.status} on /tags: ${err.message || 'unknown error'}` +
           (err.code ? ` (code ${err.code})` : '')
@@ -147,6 +176,8 @@ async function fetchTagged(known) {
     }
 
     next = body.paging?.next ? new URL(body.paging.next) : null;
+
+    if (next) await sleep(PAGE_DELAY_MS);
   }
 
   return out;
