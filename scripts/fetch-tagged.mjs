@@ -28,13 +28,13 @@ const HOST = process.env.GRAPH_HOST || 'graph.instagram.com';
 const VERSION = process.env.GRAPH_VERSION || 'v21.0';
 const FULL_SYNC = process.env.IG_FULL_SYNC === '1';
 
-const PAGE_SIZE = 3;
-const MAX_PAGES = 700;
+const PAGE_SIZE = 1;
+const MAX_PAGES = 2100;
 
 // Small pause between page requests, and backoff/retry on transient errors,
 // so a burst of many small requests doesn't trip Meta's rate limiting.
 const PAGE_DELAY_MS = 1500;
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 8;
 
 const ROOT = path.resolve(process.cwd());
 const MEDIA_DIR = path.join(ROOT, 'media');
@@ -144,7 +144,7 @@ async function fetchTagged(known) {
       const err = body?.error || {};
       const transient = res.status >= 500 || err.code === 1;
       if (transient && attempt < MAX_ATTEMPTS) {
-        const wait = 2000 * attempt;
+        const wait = 3000 * attempt;
         console.log(
           `  · transient error on page ${pages + 1}, attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${wait}ms: ${
             err.message || res.status
