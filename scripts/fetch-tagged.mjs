@@ -28,8 +28,8 @@ const HOST = process.env.GRAPH_HOST || 'graph.instagram.com';
 const VERSION = process.env.GRAPH_VERSION || 'v21.0';
 const FULL_SYNC = process.env.IG_FULL_SYNC === '1';
 
-const PAGE_SIZE = 5;
-const MAX_PAGES = 400;
+const PAGE_SIZE = 3;
+const MAX_PAGES = 700;
 
 const ROOT = path.resolve(process.cwd());
 const MEDIA_DIR = path.join(ROOT, 'media');
